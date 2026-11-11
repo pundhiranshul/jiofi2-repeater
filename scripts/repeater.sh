@@ -39,6 +39,9 @@ echo "[$(date)] Target Hotspot: $SSID, Virtual MAC: $MAC, Channel: $CHAN, Hostna
 # 0. Performance tuning: Lock CPU frequency to maximum (1.305 GHz)
 echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
 
+# Kill carrier bloatware to free up Qualcomm CPU for NAT routing
+killall -9 cwmpc patrol volte_mal embms_mal hf_server miniupnpd 2>/dev/null
+
 # Tune kernel TCP/network buffers
 sysctl -w net.core.rmem_max=2097152 net.core.wmem_max=2097152 net.core.netdev_max_backlog=5000 2>/dev/null
 sysctl -w net.ipv4.tcp_rmem='4096 87380 2097152' net.ipv4.tcp_wmem='4096 65536 2097152' 2>/dev/null
@@ -68,16 +71,24 @@ fi
 # Allow sysconf, iwcontrol, and wscd to settle
 sleep 6
 
-# Optimize radio parameters on physical AP
-iwpriv wlan0 set_mib ps_level=0 2>/dev/null
+# Optimize radio parameters on physical AP & virtual STA (Overdrive Driver Tuning)
+# 1. Force 40 MHz width and disable neighbor coexistence fallback
+iwpriv wlan0 set_mib use40M=1 2>/dev/null
+iwpriv wlan0 set_mib coexist=0 2>/dev/null
+
+# 2. Enable Short Guard Interval (11% speed boost)
+iwpriv wlan0 set_mib shortGI20M=1 2>/dev/null
+iwpriv wlan0 set_mib shortGI40M=1 2>/dev/null
+
+# 3. Maximize Frame Aggregation (Reduces Wi-Fi overhead)
 iwpriv wlan0 set_mib max_xmitbuf_agg=1 2>/dev/null
 iwpriv wlan0 set_mib max_recvbuf_agg=1 2>/dev/null
 iwpriv wlan0 set_mib qos_enable=1 2>/dev/null
-iwpriv wlan0 set_mib shortGI20M=1 2>/dev/null
-iwpriv wlan0 set_mib shortGI40M=1 2>/dev/null
-iwpriv wlan0 set_mib use40M=1 2>/dev/null
 iwpriv wlan0 set_mib ampdu=1 2>/dev/null
 iwpriv wlan0 set_mib amsdu=1 2>/dev/null
+
+# 4. Disable Wi-Fi Power Saving (Stops latency spikes)
+iwpriv wlan0 set_mib ps_level=0 2>/dev/null
 
 # Ensure base radio channel matches target channel
 CUR_CHAN=$(cat /proc/wlan0/mib_rf 2>/dev/null | grep "dot11channel:" | awk '{print $2}')
@@ -129,6 +140,7 @@ associate_once() {
     iwpriv wlan0-vxd set_mib band=11 2>/dev/null
     iwpriv wlan0-vxd set_mib nat25_disable=1 2>/dev/null
     iwpriv wlan0-vxd set_mib swcrypto=0 2>/dev/null
+    iwpriv wlan0-vxd set_mib ps_level=0 2>/dev/null
     iwpriv wlan0-vxd set_mib max_xmitbuf_agg=1 2>/dev/null
     iwpriv wlan0-vxd set_mib max_recvbuf_agg=1 2>/dev/null
     iwpriv wlan0-vxd set_mib qos_enable=1 2>/dev/null
