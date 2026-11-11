@@ -1,0 +1,119 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Fcntl qw(O_RDONLY O_NONBLOCK);
+
+$| = 1;
+$SIG{HUP}  = 'IGNORE';
+$SIG{TERM} = sub { exit 0; };
+
+# Initialize GPIOs
+my @gpios = (0, 1, 2, 3, 4, 6, 7, 10, 11, 18, 26);
+for my $g (@gpios) {
+    if (! -d "/sys/class/gpio/gpio$g") {
+        if (open(my $efh, ">", "/sys/class/gpio/export")) {
+            print $efh "$g\n";
+            close($efh);
+        }
+    }
+    if (open(my $dfh, ">", "/sys/class/gpio/gpio$g/direction")) {
+        print $dfh "out\n";
+        close($dfh);
+    }
+}
+
+sub set_gpio {
+    my ($gpio, $val) = @_;
+    if (open(my $fh, ">", "/sys/class/gpio/gpio$gpio/value")) {
+        print $fh "$val\n";
+        close($fh);
+    }
+}
+
+sub all_leds_off {
+    for my $g (@gpios) {
+        set_gpio($g, 0);
+    }
+}
+
+# Ensure Wi-Fi LED is solid green
+set_gpio(10, 1);
+set_gpio(11, 0);
+
+my %event_fhs;
+sub open_events {
+    for my $dev ("/dev/input/event0", "/dev/input/event1") {
+        next if grep { $_->{dev} eq $dev } values %event_fhs;
+        if (sysopen(my $fh, $dev, O_RDONLY | O_NONBLOCK)) {
+            $event_fhs{fileno($fh)} = { fh => $fh, dev => $dev };
+        }
+    }
+}
+
+open_events();
+
+my $power_press_time = 0;
+my $last_led_update = 0;
+my $last_online_state = -1;
+
+# MAIN EVENT LOOP
+while (1) {
+    # Ensure event handles are open
+    open_events() if (keys %event_fhs < 2);
+
+    for my $fd (keys %event_fhs) {
+        my $fh = $event_fhs{$fd}{fh};
+        
+        # Read 16 bytes (standard 32-bit Linux input_event struct)
+        while (sysread($fh, my $buf, 16) == 16) {
+            my ($sec, $usec, $type, $code, $value) = unpack("l l S S l", $buf);
+            
+            # type 1 = EV_KEY (Button)
+            if ($type == 1) {
+                if ($value == 1) { 
+                    # Button Pressed down
+                    $power_press_time = time() if ($power_press_time == 0);
+                } elsif ($value == 0) { 
+                    # Button Released
+                    if ($power_press_time > 0 && (time() - $power_press_time) >= 2) {
+                        all_leds_off();
+                        system("sync; /sbin/sys_shutdown 2>/dev/null || /sbin/poweroff 2>/dev/null || poweroff 2>/dev/null &");
+                        exit 0;
+                    }
+                    $power_press_time = 0;
+                }
+            }
+        }
+    }
+
+    # Also detect if button is held >= 2 seconds continuously without release
+    if ($power_press_time > 0 && (time() - $power_press_time) >= 2) {
+        all_leds_off();
+        system("sync; /sbin/sys_shutdown 2>/dev/null || /sbin/poweroff 2>/dev/null || poweroff 2>/dev/null &");
+        exit 0;
+    }
+
+    # Update Tower LED state based on /tmp/repeater_online
+    my $now = time();
+    if ($now != $last_led_update) {
+        $last_led_update = $now;
+        my $is_online = (-f "/tmp/repeater_online") ? 1 : 0;
+        if ($is_online != $last_online_state) {
+            $last_online_state = $is_online;
+            if ($is_online) {
+                # Online: Solid GREEN (gpio4=1, gpio7=1, gpio6=0)
+                set_gpio(4, 1);
+                set_gpio(7, 1);
+                set_gpio(6, 0);
+            } else {
+                # Offline/Searching: Solid RED (gpio6=1, gpio7=1, gpio4=0)
+                set_gpio(6, 1);
+                set_gpio(7, 1);
+                set_gpio(4, 0);
+            }
+        }
+    }
+
+    # CRITICAL: 200ms sleep. Without this, the script will use 100% CPU and throttle your internet speed.
+    select(undef, undef, undef, 0.2);
+}

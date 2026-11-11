@@ -1,0 +1,39 @@
+#!/bin/sh
+# ==============================================================================
+# udhcpc Event Script for JioFi 2 (M2S) Virtual STA Interface (wlan0-vxd)
+# Handles DHCP bound/renew events, sets default routes and DNS servers
+# ==============================================================================
+
+case "$1" in
+    deconfig)
+        :
+        ;;
+    renew|bound)
+        [ -n "$broadcast" ] && BROADCAST="broadcast $broadcast"
+        [ -n "$subnet" ] && NETMASK="netmask $subnet"
+        /sbin/ifconfig "$interface" "$ip" $BROADCAST $NETMASK
+
+        if [ -n "$router" ]; then
+            while /sbin/route del default dev "$interface" 2>/dev/null; do :; done
+            for r in $router; do
+                /sbin/route add default gw "$r" dev "$interface"
+                break
+            done
+        fi
+
+        if [ -n "$dns" ]; then
+            > /var/volatile/resolv.conf
+            > /app/var/resolv.conf
+            chmod 644 /app/var/resolv.conf 2>/dev/null
+            for ns in $dns; do
+                echo "nameserver $ns" >> /var/volatile/resolv.conf
+                echo "nameserver $ns" >> /app/var/resolv.conf
+            done
+            echo "nameserver 8.8.8.8" >> /var/volatile/resolv.conf
+            echo "nameserver 8.8.8.8" >> /app/var/resolv.conf
+            [ -f /etc/resolv.conf ] && cp -f /var/volatile/resolv.conf /etc/resolv.conf 2>/dev/null
+        fi
+        ;;
+esac
+
+exit 0
