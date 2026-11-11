@@ -76,18 +76,22 @@ sleep 6
 iwpriv wlan0 set_mib use40M=1 2>/dev/null
 iwpriv wlan0 set_mib coexist=0 2>/dev/null
 
-# 2. Enable Short Guard Interval (11% speed boost)
+# 2. Force WPA2-AES on local AP (strictly eliminate legacy TKIP rate capping)
+iwpriv wlan0 set_mib wpa_cipher=0 2>/dev/null
+iwpriv wlan0 set_mib wpa2_cipher=8 2>/dev/null
+
+# 3. Enable Short Guard Interval (11% speed boost)
 iwpriv wlan0 set_mib shortGI20M=1 2>/dev/null
 iwpriv wlan0 set_mib shortGI40M=1 2>/dev/null
 
-# 3. Maximize Frame Aggregation (Reduces Wi-Fi overhead)
+# 4. Maximize Frame Aggregation (Reduces Wi-Fi overhead)
 iwpriv wlan0 set_mib max_xmitbuf_agg=1 2>/dev/null
 iwpriv wlan0 set_mib max_recvbuf_agg=1 2>/dev/null
 iwpriv wlan0 set_mib qos_enable=1 2>/dev/null
 iwpriv wlan0 set_mib ampdu=1 2>/dev/null
 iwpriv wlan0 set_mib amsdu=1 2>/dev/null
 
-# 4. Disable Wi-Fi Power Saving (Stops latency spikes)
+# 5. Disable Wi-Fi Power Saving (Stops latency spikes)
 iwpriv wlan0 set_mib ps_level=0 2>/dev/null
 
 # Ensure base radio channel matches target channel
@@ -138,6 +142,7 @@ associate_once() {
 
     # Configure 802.11n high-throughput, QoS, aggregation, and WPA2-PSK parameters
     iwpriv wlan0-vxd set_mib band=11 2>/dev/null
+    iwpriv wlan0-vxd set_mib fixrate=0x87 2>/dev/null
     iwpriv wlan0-vxd set_mib nat25_disable=1 2>/dev/null
     iwpriv wlan0-vxd set_mib swcrypto=0 2>/dev/null
     iwpriv wlan0-vxd set_mib ps_level=0 2>/dev/null
